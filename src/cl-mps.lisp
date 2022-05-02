@@ -52,6 +52,8 @@
 (defstruct problem
   (name nil :type string)
   (sense nil :type sense)
+  (variables nil :type hash-table)
+  (constraints nil :type hash-table)
   (objective-name nil :type string)
   (objective nil :type hash-table))
 
@@ -66,69 +68,82 @@
   (check-type default-sense sense)
   (let ((problem (make-problem :name ""
                                :sense default-sense
+                               :variables (make-hash-table :test #'equal)
+                               :constraints (make-hash-table :test #'equal)
                                :objective-name ""
                                :objective (make-hash-table :test #'equal)))
         mode
-        (constraints (make-hash-table :test #'equal))
         (num-n 0))
-    (loop
-      for line-number from 0
-      for line = (read-line stream nil nil)
-      while line
-      for items = (%split line)
-      when items
-      do (block continue
-           (trivia:match (first items)
-             ("ENDATA" (return))
-             ((trivia.ppcre:ppcre "^\\*") (return-from continue))
-             ("NAME"
-              (when (second items)
-                (setf (problem-name problem) (second items)))
-              (when (third items)
-                (warn 'mps-syntax-warning
-                      :line-number line-number
-                      :format-control "NAME contains whitespaces: ~A"
-                      :format-arguments (list line))))
-             ((or "ROWS" "COLUMNS" "RHS" "BOUNDS" "RANGES" "OBJSENSE")
-              (when (string= (first items) "RANGES")
-                (warn 'mps-syntax-warning
-                      :line-number line-number
-                      :format-control "RANGES section will be ignored"))
-              (setq mode (intern (first items) "CL-MPS")))
-             (otherwise
-              (ecase mode
-                (rows
-                 (let ((sense (trivia:match (first items)
-                                ("N" (incf num-n) nil)
-                                ("G" +ge+)
-                                ("L" +le+)
-                                ("E" +eq+)))
-                       (name (second items)))
-                   (if sense
-                       (progn
-                         (unless (gethash name constraints)
-                           (setf (gethash name constraints)
-                                 (make-constraint :name name :sense sense
-                                                  :coefs (make-hash-table :test #'equal)
-                                                  :rhs 0))))
-                       (if (= num-n 1)
-                           (setf (problem-objective-name problem) name)
-                           (warn 'mps-syntax-warning
-                                 :line-number line-number
-                                 :format-control "Second or later 'N' rows are ignored: ~A"
-                                 :format-arguments line)))))
-                (columns)
-                (rhs)
-                (bounds)
-                (ranges)
-                (objsense
-                 (setf (problem-sense problem)
-                       (trivia:match (first items)
-                         ("MAX" +maximize+)
-                         ("MIN" +minimize+)
-                         (otherwise
-                          (error 'mps-syntax-error
-                                 :line-number line-number
-                                 :format-control "Unknown sense in OBJSENSE section: ~A"
-                                 :format-arguments (subseq items 0 1)))))))))))
+    (symbol-macrolet ((constraints (problem-constraints problem))
+                      (variables (problem-variables problem))
+                      (objective (problem-objective problem))
+                      (objective-name (problem-objective-name problem)))
+      (loop
+        for line-number from 0
+        for line = (read-line stream nil nil)
+        while line
+        for items = (%split line)
+        when items
+        do (block continue
+             (trivia:match (first items)
+               ("ENDATA" (return))
+               ((trivia.ppcre:ppcre "^\\*") (return-from continue))
+               ("NAME"
+                (when (second items)
+                  (setf (problem-name problem) (second items)))
+                (when (third items)
+                  (warn 'mps-syntax-warning
+                        :line-number line-number
+                        :format-control "NAME contains whitespaces: ~A"
+                        :format-arguments (list line))))
+               ((or "ROWS" "COLUMNS" "RHS" "BOUNDS" "RANGES" "OBJSENSE")
+                (when (string= (first items) "RANGES")
+                  (warn 'mps-syntax-warning
+                        :line-number line-number
+                        :format-control "RANGES section will be ignored"))
+                (setq mode (intern (first items) "CL-MPS")))
+               (otherwise
+                (ecase mode
+                  (rows
+                   (let ((sense (trivia:match (first items)
+                                  ("N" (incf num-n) nil)
+                                  ("G" +ge+)
+                                  ("L" +le+)
+                                  ("E" +eq+)
+                                  (otherwise
+                                   (error 'mps-syntax-error
+                                          :line-number line-number
+                                          :format-control "Unknown constraint sense: ~A"
+                                          :format-arguments (subseq items 0 1)))))
+                         (name (second items)))
+                     (if sense
+                         (if (gethash name constraints)
+                             (error 'mps-syntax-error
+                                    :line-number line-number
+                                    :format-control "Row name ~A is already used"
+                                    :format-arguments (list name))
+                             (setf (gethash name constraints)
+                                   (make-constraint :name name :sense sense
+                                                    :coefs (make-hash-table :test #'equal)
+                                                    :rhs 0)))
+                         (if (= num-n 1)
+                             (setq objective-name name)
+                             (warn 'mps-syntax-warning
+                                   :line-number line-number
+                                   :format-control "Second or later N rows are ignored: ~A"
+                                   :format-arguments (list line))))))
+                  (columns)
+                  (rhs)
+                  (bounds)
+                  (ranges)
+                  (objsense
+                   (setf (problem-sense problem)
+                         (trivia:match (first items)
+                           ("MAX" +maximize+)
+                           ("MIN" +minimize+)
+                           (otherwise
+                            (error 'mps-syntax-error
+                                   :line-number line-number
+                                   :format-control "Unknown sense in OBJSENSE section: ~A"
+                                   :format-arguments (subseq items 0 1))))))))))))
     problem))
