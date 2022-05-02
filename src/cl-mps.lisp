@@ -8,7 +8,8 @@
            #:constraint #:make-constraint
            #:constraint-name #:constraint-sense #:constraint-coefs #:constraint-rhs
            #:problem #:make-problem
-           #:problem-name #:problem-sense))
+           #:problem-name #:problem-sense #:problem-variables #:problem-constraints
+           #:problem-objective #:problem-objective-name))
 
 (in-package :cl-mps)
 
