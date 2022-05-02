@@ -6,6 +6,16 @@ This module provides reader and writer for MPS format.
 
 ## Usage
 
+## Requirements
+
+`cl-mps` is tested on the (usually latest version of the) following implementations:
+
+- SBCL
+- Clozure CL
+- ABCL
+- Allegro CL
+
+
 ## Notes on MPS format
 
 This module deals with a kind of "free MPS format". Please see [MPS file format](http://lpsolve.sourceforge.net/5.0/mps-format.htm) for the details. Below are the several notes on the specifications.
