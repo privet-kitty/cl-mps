@@ -2,9 +2,14 @@
   (:use :cl)
   (:shadow #:variable)
   (:export #:mps-syntax-warning #:mps-syntax-error #:mps-syntax-condition-line-number
-           #:sense #:variable #:+maximize+ #:+minimize+ #:read-mps
-           #:constraint #:constraint-name #:constraint-sense #:constraint-coefs #:constraint-rhs
-           #:problem #:make-problem #:problem-name #:problem-sense))
+           #:sense #:+maximize+ #:+minimize+ #:+ge+ #:+eq+ #:+le+
+           #:read-mps
+           #:variable #:make-variable
+           #:variable-name #:variable-integer-p #:variable-lo #:variable-hi
+           #:constraint #:make-constraint
+           #:constraint-name #:constraint-sense #:constraint-coefs #:constraint-rhs
+           #:problem #:make-problem
+           #:problem-name #:problem-sense))
 
 (in-package :cl-mps)
 
