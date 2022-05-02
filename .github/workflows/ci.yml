@@ -31,5 +31,5 @@ jobs:
           ros -s fiveam -e '(handler-bind ((error (lambda (c) (print c) (uiop:quit 1))))
                               (ql:quickload :cl-mps/test))
                             (handler-bind ((error (lambda (c) (print c) (uiop:quit 1))))
-                              (or (fiveam:run! :)
+                              (or (fiveam:run! (quote cl-mps/test:main-suite))
                                   (uiop:quit 1)))'
