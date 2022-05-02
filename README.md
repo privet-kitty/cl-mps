@@ -8,11 +8,10 @@ This module provides reader and writer for MPS format.
 
 ## Requirements
 
-`cl-mps` is tested on the (usually latest version of the) following implementations:
+`cl-mps` is tested on (the usually latest version of) the following implementations:
 
 - SBCL
 - Clozure CL
-- ABCL
 - Allegro CL
 
 
