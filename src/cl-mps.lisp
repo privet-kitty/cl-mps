@@ -67,6 +67,13 @@ positive) infinity."
   (delete-if-not (lambda (s) (> (length (the string s)) 0))
                  (the list (cl-ppcre:split "\\s+" string))))
 
+(defun detect-section (items)
+  (declare (optimize (speed 3)))
+  (if (and (equal (first items) "OBJECT")
+           (equal (second items) "BOUND"))
+      (list "OBJECT BOUND" (cddr items))
+      items))
+
 (defun parse-real! (string)
   "Note that STRING may be modified."
   (declare (optimize (speed 3))
@@ -102,7 +109,7 @@ Note:
         for line-number from 0
         for line = (read-line stream nil nil)
         while line
-        for items = (%split line)
+        for items = (detect-section (%split line))
         when items
         do (block continue
              (trivia:match (first items)
@@ -116,11 +123,13 @@ Note:
                         :line-number line-number
                         :format-control "NAME contains whitespaces: ~A"
                         :format-arguments (list line))))
-               ((or "ROWS" "COLUMNS" "RHS" "BOUNDS" "RANGES" "OBJSENSE")
-                (when (string= (first items) "RANGES")
-                  (warn 'mps-syntax-warning
-                        :line-number line-number
-                        :format-control "RANGES section will be ignored"))
+               ((or "RANGES" "OBJECT BOUND")
+                (warn 'mps-syntax-warning
+                      :line-number line-number
+                      :format-control "~A section will be ignored"
+                      :format-arguments (subseq items 0 1))
+                (setq mode (intern (first items) "CL-MPS")))
+               ((or "ROWS" "COLUMNS" "RHS" "BOUNDS" "RANGES" "OBJSENSE" "OBJECT BOUND")
                 (setq mode (intern (first items) "CL-MPS")))
                (otherwise
                 (case mode
