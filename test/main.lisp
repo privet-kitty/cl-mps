@@ -1,8 +1,8 @@
-(defpackage cl-mps/test/main
+(defpackage cl-mps/test
   (:use :cl :cl-mps :fiveam)
   (:export #:main-suite))
 
-(in-package :cl-mps/test/main)
+(in-package :cl-mps/test)
 
 ;; NOTE: To run this test file, execute `(asdf:test-system :cl-mps)' in your Lisp.
 

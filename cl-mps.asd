@@ -18,4 +18,4 @@
   :components ((:file "main"))
   :description "Test system for cl-mps"
   :perform (test-op (o c)
-                    (uiop:eval-input "(fiveam:run! 'cl-mps/test/main:main-suite)")))
+                    (uiop:eval-input "(fiveam:run! 'cl-mps/test:main-suite)")))

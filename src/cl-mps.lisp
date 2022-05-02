@@ -1,11 +1,10 @@
 (defpackage :cl-mps
   (:use :cl)
-  (:shadow #:variable)
   (:export #:mps-syntax-warning #:mps-syntax-error #:mps-syntax-condition-line-number
            #:sense #:+maximize+ #:+minimize+ #:+ge+ #:+eq+ #:+le+
            #:read-mps
-           #:variable #:make-variable
-           #:variable-name #:variable-integer-p #:variable-lo #:variable-hi
+           #:var #:make-var
+           #:var-name #:var-integer-p #:var-lo #:var-hi
            #:constraint #:make-constraint
            #:constraint-name #:constraint-sense #:constraint-coefs #:constraint-rhs
            #:problem #:make-problem
@@ -38,7 +37,7 @@
 (defconstant +eq+ 0)
 (defconstant +le+ -1)
 
-(defstruct variable
+(defstruct var ; avoid collision with cl:variable
   (name nil :type string)
   (integer-p nil :type nil)
   (lo nil :type (or null real))
