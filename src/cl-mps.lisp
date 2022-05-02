@@ -73,8 +73,9 @@ positive) infinity."
            (string string))
   (uiop:if-let ((exp-pos (position #\D string :test #'char-equal)))
     (setf (aref string exp-pos) #\E))
-  ;; NOTE: If STRING contains an exponent sign for short-float, single-float, or
-  ;; long-float (i.e. S, F, or L), the precision of the number may decrease.
+  ;; NOTE: This function doesn't throw error even if STRING contains an invalid
+  ;; exponent sign (i.e. S, F, or, L). In this case, the loss of precision may
+  ;; also occur.
   (coerce (read-from-string string) *read-default-float-format*))
 
 (defun read-mps (stream &key (default-sense +minimize+))
