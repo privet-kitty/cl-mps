@@ -27,7 +27,6 @@ This module deals with a kind of "free MPS format". Please see [MPS file format]
 - In fixed MPS format, BOUNDS section may contain multiple sets of bounds. That is, a single file may contain multiple problem instances. As this specification is not widely used, `read-mps` simply ignores the names of the bound, and assumes that only a single set of bounds exist. RHS section is also handled in the same way.
 - When BOUNDS section contains a bound type SC, which indicates semi-continuity, `read-mps` warns and ignores it.
 - In ROWS section, the first row that is indicated as 'N' is regarded as the objective. Other such rows are ignored.
-- RANGES section is ignored.
 - Variables whose bound type is BV, LI, or UI are regarded as integral.
 - `read-mps` can interpret parts of CPLEX extensions.
   - In COLS section, variables between the two markers, INTORG and INTEND, are regarded as integral. (See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-integer-variables-in-mps-files.)

@@ -8,6 +8,7 @@
            #:var-name #:var-integer-p #:var-lo #:var-up
            #:constraint #:make-constraint
            #:constraint-name #:constraint-sense #:constraint-coefs #:constraint-rhs
+           #:constraint-range #:constraint-lo #:constraint-up
            #:problem #:make-problem
            #:problem-name #:problem-sense #:problem-variables #:problem-constraints
            #:problem-objective #:problem-objective-name))
@@ -30,36 +31,62 @@
 
 (deftype sense () '(integer -1 1))
 
-;; objective senses
-(defconstant +maximize+ 1)
-(defconstant +minimize+ -1)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  ;; objective senses
+  (defconstant +maximize+ 1)
+  (defconstant +minimize+ -1)
 
-;; constraint senses
-(defconstant +ge+ 1)
-(defconstant +eq+ 0)
-(defconstant +le+ -1)
+  ;; constraint senses
+  (defconstant +ge+ 1)
+  (defconstant +eq+ 0)
+  (defconstant +le+ -1))
 
 (defstruct var ; avoid collision with cl:variable
   "Holds information for variable. NIL for LO (or UP) slots means negative (or
 positive) infinity."
-  (name nil :type string)
+  (name "" :type string)
   (integer-p nil :type boolean)
   (lo nil :type (or null real))
   (up nil :type (or null real)))
 
 (defstruct constraint
-  (name nil :type string)
+  (name "" :type string)
   (sense nil :type (or null sense))
-  (coefs nil :type hash-table)
-  (rhs nil :type real))
+  (coefs (make-hash-table :test #'equal) :type hash-table)
+  (rhs nil :type real)
+  (range nil :type (or null real)))
+
+(defun constraint-up (constraint)
+  "Returns the upper bound of CONSTRAINT."
+  (let ((range (constraint-range constraint))
+        (rhs (constraint-rhs constraint))
+        (sense (constraint-sense constraint)))
+    (if range
+        (ecase sense
+          (#.+ge+ (+ rhs (abs range)))
+          (#.+eq+ (max rhs (+ rhs range)))
+          (#.+le+ rhs))
+        (if (<= sense 0) rhs nil))))
+
+(defun constraint-lo (constraint)
+  "Returns the lower bound of CONSTRAINT."
+  (let ((range (constraint-range constraint))
+        (rhs (constraint-rhs constraint))
+        (sense (constraint-sense constraint)))
+    (if range
+        (ecase sense
+          (#.+ge+ rhs)
+          (#.+eq+ (min rhs (+ rhs range)))
+          (#.+le+ (- rhs (abs range))))
+        (if (>= sense 0) rhs nil))))
 
 (defstruct problem
-  (name nil :type string)
+  (name "" :type string)
   (sense nil :type sense)
-  (variables nil :type hash-table)
-  (constraints nil :type hash-table)
-  (objective-name nil :type string)
-  (objective nil :type hash-table))
+  (variables (make-hash-table :test #'equal) :type hash-table)
+  (constraints (make-hash-table :test #'equal) :type hash-table)
+  (objective-name "" :type string)
+  (objective (make-hash-table :test #'equal) :type hash-table))
 
 (defun %split (string)
   (declare (optimize (speed 3))
@@ -73,6 +100,12 @@ positive) infinity."
            (equal (second items) "BOUND"))
       (list "OBJECT BOUND" (cddr items))
       items))
+
+(defun coerce* (value type)
+  (declare (optimize (speed 3)))
+  (if (eql type 'rational)
+      (rationalize value)
+      (coerce value type)))
 
 (defun parse-real! (string line-number)
   "Note that STRING may be modified."
@@ -89,7 +122,7 @@ positive) infinity."
                                  :line-number line-number
                                  :format-control "~A cannot be parsed as a real number"
                                  :format-arguments (list string)))))
-    (coerce (read-from-string string) *read-default-float-format*)))
+    (coerce* (read-from-string string) *read-default-float-format*)))
 
 (defun read-mps (stream &key (default-sense +minimize+))
   "Reads MPS format and returns a PROBLEM object.
@@ -98,12 +131,7 @@ Note:
 - OBJSENSE section takes precedence over DEFAULT-SENSE."
   (check-type stream stream)
   (check-type default-sense sense)
-  (let ((problem (make-problem :name ""
-                               :sense default-sense
-                               :variables (make-hash-table :test #'equal)
-                               :constraints (make-hash-table :test #'equal)
-                               :objective-name ""
-                               :objective (make-hash-table :test #'equal)))
+  (let ((problem (make-problem :sense default-sense))
         mode
         integer-p
         (non-constrained-rows (make-hash-table :test #'equal)))
@@ -129,13 +157,13 @@ Note:
                         :line-number line-number
                         :format-control "NAME contains whitespaces: ~A"
                         :format-arguments (list line))))
-               ((or "RANGES" "OBJECT BOUND")
+               ((or "OBJECT BOUND")
                 (warn 'mps-syntax-warning
                       :line-number line-number
                       :format-control "~A section will be ignored"
                       :format-arguments (subseq items 0 1))
                 (setq mode (intern (first items) "CL-MPS")))
-               ((or "ROWS" "COLUMNS" "RHS" "BOUNDS" "RANGES" "OBJSENSE" "OBJECT BOUND")
+               ((or "ROWS" "COLUMNS" "RHS" "RANGES" "BOUNDS" "RANGES" "OBJSENSE")
                 (setq mode (intern (first items) "CL-MPS")))
                (otherwise
                 (case mode
@@ -158,9 +186,7 @@ Note:
                                     :format-control "Row name ~A is already used"
                                     :format-arguments (list name))
                              (setf (gethash name constraints)
-                                   (make-constraint :name name :sense sense
-                                                    :coefs (make-hash-table :test #'equal)
-                                                    :rhs 0)))
+                                   (make-constraint :name name :sense sense :rhs 0)))
                          (if (and (setf (gethash name non-constrained-rows) t)
                                   (= (hash-table-count non-constrained-rows) 1))
                              (setq objective-name name)
@@ -205,20 +231,23 @@ Note:
                                         :line-number line-number
                                         :format-control "Unknown row name: ~A"
                                         :format-arguments (list row-name))))))))
-                  (rhs
-                   (loop for (row-name rhs-string) on (if (oddp (length items))
-                                                          (cdr items)
-                                                          items)
+                  ((rhs ranges)
+                   (loop for (row-name value-string) on (if (oddp (length items))
+                                                            (cdr items)
+                                                            items)
                          by #'cddr
-                         for rhs = (parse-real! rhs-string line-number)
+                         for value = (parse-real! value-string line-number)
                          for constraint = (gethash row-name constraints)
                          do (cond
                               ((gethash row-name non-constrained-rows)
                                (warn 'mps-syntax-warning
                                      :line-number line-number
-                                     :format-control "RHS is tried to be set for a N row"))
+                                     :format-control "~A is tried to be set for a N row"
+                                     :format-arguments (list mode)))
                               (constraint
-                               (setf (constraint-rhs constraint) rhs))
+                               (ecase mode
+                                 (rhs (setf (constraint-rhs constraint) value))
+                                 (ranges (setf (constraint-range constraint) value))))
                               (t
                                (error 'mps-syntax-error
                                       :line-number line-number
@@ -287,7 +316,6 @@ Note:
                                 (var-lo var) 0
                                 (var-up var) 1))
                          (otherwise (error "Unreachable"))))))
-                  (ranges)
                   (objsense
                    (setf (problem-sense problem)
                          (trivia:match (first items)

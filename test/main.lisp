@@ -9,11 +9,32 @@
 (def-suite main-suite)
 (in-suite main-suite)
 
+(test constraint-lo-up
+  ;; ==
+  (is (= 3 (constraint-lo (make-constraint :sense +eq+ :rhs 3))))
+  (is (= 3 (constraint-up (make-constraint :sense +eq+ :rhs 3))))
+  (is (= 3 (constraint-lo (make-constraint :sense +eq+ :rhs 3 :range 10))))
+  (is (= 13 (constraint-up (make-constraint :sense +eq+ :rhs 3 :range 10))))
+  (is (= -7 (constraint-lo (make-constraint :sense +eq+ :rhs 3 :range -10))))
+  (is (= 3 (constraint-up (make-constraint :sense +eq+ :rhs 3 :range -10))))
+  ;; >=
+  (is (= 3 (constraint-lo (make-constraint :sense +ge+ :rhs 3))))
+  (is (null (constraint-up (make-constraint :sense +ge+ :rhs 3))))
+  (is (= 3 (constraint-lo (make-constraint :sense +ge+ :rhs 3 :range 10))))
+  (is (= 13 (constraint-up (make-constraint :sense +ge+ :rhs 3 :range 10))))
+  (is (= 3 (constraint-lo (make-constraint :sense +ge+ :rhs 3 :range -10))))
+  (is (= 13 (constraint-up (make-constraint :sense +ge+ :rhs 3 :range -10))))
+  ;; <=
+  (is (null (constraint-lo (make-constraint :sense +le+ :rhs 3))))
+  (is (= 3 (constraint-up (make-constraint :sense +le+ :rhs 3))))
+  (is (= -7 (constraint-lo (make-constraint :sense +le+ :rhs 3 :range 10))))
+  (is (= 3 (constraint-up (make-constraint :sense +le+ :rhs 3 :range 10))))
+  (is (= -7 (constraint-lo (make-constraint :sense +le+ :rhs 3 :range -10))))
+  (is (= 3 (constraint-up (make-constraint :sense +le+ :rhs 3 :range -10)))))
+
 (test read-mps
   (signals mps-syntax-warning
     (read-mps (make-string-input-stream "NAME two words")))
-  (signals mps-syntax-warning
-    (read-mps (make-string-input-stream "RANGES")))
   ;; invalid ROWS
   (signals mps-syntax-warning
     (read-mps (make-string-input-stream "ROWS
@@ -101,6 +122,8 @@ BOUNDS
  UI BND1      XONE                 4
  LO BND1      YTWO                -1
  UP BND1      YTWO                 1
+RANGES
+ RNG1 LIM1 0.5
 ENDATA")
                         :default-sense +minimize+))))
       (is (string= (problem-name problem) "Problem_Name"))
@@ -121,6 +144,10 @@ ENDATA")
                  (constraint-rhs (gethash "LIM2" constraints))))
         (is (eql (coerce 723/100 *read-default-float-format*)
                  (constraint-rhs (gethash "MYEQN" constraints))))
+        (is (eql (cl-mps::coerce* 0.5 *read-default-float-format*)
+                 (constraint-range (gethash "LIM1" constraints))))
+        (is (null (constraint-range (gethash "LIM2" constraints))))
+        (is (null (constraint-range (gethash "MYEQN" constraints))))
         (is (= 3 (hash-table-count objective)))
         (is (eql (coerce 1 *read-default-float-format*) (gethash "XONE" objective)))
         (is (eql (coerce 4 *read-default-float-format*) (gethash "YTWO" objective)))
