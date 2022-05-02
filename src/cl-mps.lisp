@@ -45,13 +45,15 @@
 
 (defstruct constraint
   (name nil :type string)
-  (sense nil :type sense)
+  (sense nil :type (or null sense))
   (coefs nil :type hash-table)
   (rhs nil :type real))
 
 (defstruct problem
   (name nil :type string)
-  (sense nil :type sense))
+  (sense nil :type sense)
+  (objective-name nil :type string)
+  (objective nil :type hash-table))
 
 (defun %split (string)
   (declare (optimize (speed 3))
@@ -62,10 +64,13 @@
 (defun read-mps (stream &key (default-sense +minimize+))
   (check-type stream stream)
   (check-type default-sense sense)
-  (let ((problem (make-problem :name "" :sense default-sense))
+  (let ((problem (make-problem :name ""
+                               :sense default-sense
+                               :objective-name ""
+                               :objective (make-hash-table :test #'equal)))
         mode
         (constraints (make-hash-table :test #'equal))
-        (non-constraints (make-hash-table :test #'equal)))
+        (num-n 0))
     (loop
       for line-number from 0
       for line = (read-line stream nil nil)
@@ -92,7 +97,26 @@
               (setq mode (intern (first items) "CL-MPS")))
              (otherwise
               (ecase mode
-                (rows)
+                (rows
+                 (let ((sense (trivia:match (first items)
+                                ("N" (incf num-n) nil)
+                                ("G" +ge+)
+                                ("L" +le+)
+                                ("E" +eq+)))
+                       (name (second items)))
+                   (if sense
+                       (progn
+                         (unless (gethash name constraints)
+                           (setf (gethash name constraints)
+                                 (make-constraint :name name :sense sense
+                                                  :coefs (make-hash-table :test #'equal)
+                                                  :rhs 0))))
+                       (if (= num-n 1)
+                           (setf (problem-objective-name problem) name)
+                           (warn 'mps-syntax-warning
+                                 :line-number line-number
+                                 :format-control "Second or later 'N' rows are ignored: ~A"
+                                 :format-arguments line)))))
                 (columns)
                 (rhs)
                 (bounds)
