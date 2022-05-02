@@ -74,7 +74,7 @@ max?")))
   (is (= (problem-sense (read-mps (make-string-input-stream "ENDATA")
                                   :default-sense +maximize+))
          +maximize+))
-  (dolist (*read-default-float-format* '(double-float single-float rational))
+  (dolist (*read-default-float-format* '(double-float single-float #+(or sbcl clozure) rational))
     (let ((problem
             (handler-bind ((warning (lambda (c) (declare (ignorable c)) (error "warn"))))
               (read-mps (make-string-input-stream
