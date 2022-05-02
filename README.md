@@ -29,10 +29,11 @@ This module deals with a kind of "free MPS format". Please see [MPS file format]
 - In ROWS section, the first row that is indicated as 'N' is regarded as the objective. Other such rows are ignored.
 - RANGES section is ignored.
 - Variables whose bound type is BV, LI, or UI are regarded as integral.
-- In COLS section, variables between the two markers, INTORG and INTEND, are regarded as integral. (This is CPLEX extension. See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-integer-variables-in-mps-files.)
-- `read-mps` interprets OBJSENSE section if it exists.
-- You cannot use the following reserved words for item names: `NAME`, `ENDATA`, `ROWS`, `COLUMNS`, `RHS`, `BOUNDS`, `RANGES`, and `OBJSENSE`.
-- The type of the parsed real numbers follows `*read-default-float-format*`. Some implementation allows this variable to be `rational` and `read-mps` also supports it.
+- `read-mps` can interpret parts of CPLEX extensions.
+  - In COLS section, variables between the two markers, INTORG and INTEND, are regarded as integral. (See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-integer-variables-in-mps-files.)
+  - OBJSENSE section is parsed if it exists. (See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-objective-sense-name-offset-in-mps-files.)
+- The following words are reserved: `NAME`, `ENDATA`, `ROWS`, `COLUMNS`, `RHS`, `BOUNDS`, `RANGES`, `OBJSENSE`, and `OBJECT BOUND`.
+- The type of the parsed real numbers follows `*read-default-float-format*`. Some implementations allow this variable to be `rational` and `read-mps` also supports it.
 
 
 ## Copyright
