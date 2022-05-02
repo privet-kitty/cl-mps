@@ -74,7 +74,7 @@ positive) infinity."
       (list "OBJECT BOUND" (cddr items))
       items))
 
-(defun parse-real! (string)
+(defun parse-real! (string line-number)
   "Note that STRING may be modified."
   (declare (optimize (speed 3))
            (string string))
@@ -83,7 +83,13 @@ positive) infinity."
   ;; NOTE: This function doesn't throw error even if STRING contains an invalid
   ;; exponent sign (i.e. S, F, or, L). In this case, the loss of precision may
   ;; also occur.
-  (coerce (read-from-string string) *read-default-float-format*))
+  (handler-bind ((error (lambda (c)
+                          (declare (ignore c))
+                          (error 'mps-syntax-error
+                                 :line-number line-number
+                                 :format-control "~A cannot be parsed as a real number"
+                                 :format-arguments (list string)))))
+    (coerce (read-from-string string) *read-default-float-format*)))
 
 (defun read-mps (stream &key (default-sense +minimize+))
   "Reads MPS format and returns a PROBLEM object.
@@ -181,7 +187,7 @@ Note:
                                            :up nil)))
                          (loop
                            for (row-name coef-string) on (cdr items) by #'cddr
-                           for coef = (parse-real! coef-string)
+                           for coef = (parse-real! coef-string line-number)
                            for constraint = (gethash row-name constraints)
                            do (cond
                                 ((string= objective-name row-name)
@@ -204,13 +210,13 @@ Note:
                                                           (cdr items)
                                                           items)
                          by #'cddr
-                         for rhs = (parse-real! rhs-string)
+                         for rhs = (parse-real! rhs-string line-number)
                          for constraint = (gethash row-name constraints)
                          do (cond
                               ((gethash row-name non-constrained-rows)
-                               (error 'mps-syntax-error
-                                      :line-number line-number
-                                      :format-control "RHS is tried to be set for a N row"))
+                               (warn 'mps-syntax-warning
+                                     :line-number line-number
+                                     :format-control "RHS is tried to be set for a N row"))
                               (constraint
                                (setf (constraint-rhs constraint) rhs))
                               (t
@@ -219,49 +225,68 @@ Note:
                                       :format-control "Unknown row name: ~A"
                                       :format-arguments (list row-name))))))
                   (bounds
-                   (unless (<= 3 (length items) 4)
-                     (error 'mps-syntax-error
-                            :line-number line-number
-                            :format-control "Invalid number of items"))
-                   (destructuring-bind (bound-type _ col-name &optional bound-string) items
-                     (declare (ignore _))
+                   (let ((bound-type (first items))
+                         bound-string col-name)
+                     (unless (member bound-type '("LO" "UP" "FX" "FR" "MI" "PL"
+                                                  "BV" "LI" "UI")
+                                     :test #'string=)
+                       (warn 'mps-syntax-warning
+                             :line-number line-number
+                             :format-control "Bound type ~A is ignored"
+                             :format-arguments (list bound-type))
+                       (return-from continue))
+                     ;; HACK: An "empty" bound name is allowed in fixed MPS format
+                     ;; and sometimes found in famous MPS data.
+                     ;; For example, netlib/DFL001 contains the following line in
+                     ;; BOUNDS section:
+                     ;;  UP           C03609             14.
+                     (if (member bound-type '("LO" "UP" "FX" "LI" "UI")
+                                 :test #'string=)
+                         (progn
+                           (unless (<= 3 (length items) 4)
+                             (error 'mps-syntax-error
+                                    :line-number line-number
+                                    :format-control "Invalid number of items"))
+                           (destructuring-bind (i2 i3 &optional i4) (cdr items)
+                             (if i4
+                                 (multiple-value-setq (col-name bound-string)
+                                   (values i3 i4))
+                                 (multiple-value-setq (col-name bound-string)
+                                   (values i2 i3)))))
+                         (progn
+                           (unless (<= 2 (length items) 3)
+                             (error 'mps-syntax-error
+                                    :line-number line-number
+                                    :format-control "Invalid number of items"))
+                           (destructuring-bind (i2 &optional i3) (cdr items)
+                             (if i3
+                                 (setq col-name i3)
+                                 (setq col-name i2)))))
                      (let ((bound (when bound-string
-                                    (parse-real! bound-string)))
+                                    (parse-real! bound-string line-number)))
                            (var (gethash col-name variables)))
                        (unless var
                          (error 'mps-syntax-error
                                 :line-number line-number
                                 :format-control "Unknown column name: ~A"
                                 :format-arguments (list col-name)))
-                       (labels ((check-bound ()
-                                  (unless bound
-                                    (error 'mps-syntax-error
-                                           :line-number line-number
-                                           :format-control "No bound given"))))
-                         (trivia:match bound-type
-                           ("LO" (check-bound)
-                            (setf (var-lo var) bound))
-                           ("UP" (check-bound)
-                            (setf (var-up var) bound))
-                           ("FX" (check-bound)
-                            (setf (var-lo var) bound
-                             (var-up var) bound))
-                           ("FR" (setf (var-lo var) nil
-                                  (var-up var) nil))
-                           ("MI" (setf (var-lo var) nil))
-                           ("PL" (setf (var-up var) nil))
-                           ("BV" (setf (var-integer-p var) t
-                                  (var-lo var) 0
-                                  (var-up var) 1))
-                           ("LI" (check-bound)
-                            (setf (var-integer-p var) t
-                             (var-lo var) bound))
-                           ("UI" (check-bound)
-                            (setf (var-integer-p var) t
-                             (var-up var) bound))
-                           ("SC" (warn 'mps-syntax-warning
-                                  :line-number line-number
-                                  :format-control "Bound type SC is ignored")))))))
+                       (trivia:match bound-type
+                         ("LO" (setf (var-lo var) bound))
+                         ("UP" (setf (var-up var) bound))
+                         ("FX" (setf (var-lo var) bound
+                                (var-up var) bound))
+                         ("FR" (setf (var-lo var) nil
+                                (var-up var) nil))
+                         ("MI" (setf (var-lo var) nil))
+                         ("PL" (setf (var-up var) nil))
+                         ("LI" (setf (var-integer-p var) t
+                                (var-lo var) bound))
+                         ("UI" (setf (var-integer-p var) t
+                                (var-up var) bound))
+                         ("BV" (setf (var-integer-p var) t
+                                (var-lo var) 0
+                                (var-up var) 1))
+                         (otherwise (error "Unreachable"))))))
                   (ranges)
                   (objsense
                    (setf (problem-sense problem)

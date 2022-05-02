@@ -48,7 +48,7 @@ MARK 'MARKER' 'INTORH'
 G ROW1
 RHS
 RHS1 ROW3 3")))
-  (signals mps-syntax-error (read-mps (make-string-input-stream "ROWS
+  (signals mps-syntax-warning (read-mps (make-string-input-stream "ROWS
 N ROW1
 RHS
 RHS1 ROW1 3")))
