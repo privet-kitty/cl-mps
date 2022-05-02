@@ -1,6 +1,7 @@
 (defpackage :cl-mps
   (:use :cl)
-  (:export #:mps-syntax-warning #:mps-syntax-error #:mps-syntax-condition-line-number
+  (:export #:mps-syntax-condition #:mps-syntax-warning #:mps-syntax-error
+           #:mps-syntax-condition-line-number
            #:sense #:+maximize+ #:+minimize+ #:+ge+ #:+eq+ #:+le+
            #:read-mps
            #:var #:make-var
@@ -39,6 +40,8 @@
 (defconstant +le+ -1)
 
 (defstruct var ; avoid collision with cl:variable
+  "Holds information for variable. NIL for LO (or UP) slots means negative (or
+positive) infinity."
   (name nil :type string)
   (integer-p nil :type boolean)
   (lo nil :type (or null real))
@@ -75,6 +78,10 @@
   (coerce (read-from-string string) *read-default-float-format*))
 
 (defun read-mps (stream &key (default-sense +minimize+))
+  "Reads MPS format and returns a PROBLEM object.
+
+Note:
+- OBJSENSE section takes precedence over DEFAULT-SENSE."
   (check-type stream stream)
   (check-type default-sense sense)
   (let ((problem (make-problem :name ""
