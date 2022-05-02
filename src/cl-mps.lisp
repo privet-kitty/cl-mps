@@ -4,7 +4,7 @@
            #:sense #:+maximize+ #:+minimize+ #:+ge+ #:+eq+ #:+le+
            #:read-mps
            #:var #:make-var
-           #:var-name #:var-integer-p #:var-lo #:var-hi
+           #:var-name #:var-integer-p #:var-lo #:var-up
            #:constraint #:make-constraint
            #:constraint-name #:constraint-sense #:constraint-coefs #:constraint-rhs
            #:problem #:make-problem
@@ -42,7 +42,7 @@
   (name nil :type string)
   (integer-p nil :type boolean)
   (lo nil :type (or null real))
-  (hi nil :type (or null real)))
+  (up nil :type (or null real)))
 
 (defstruct constraint
   (name nil :type string)
@@ -158,8 +158,10 @@
                        (let* ((name (car items)))
                          (unless (gethash name variables)
                            (setf (gethash name variables)
-                                 (make-var :name name :integer-p integer-p
-                                           :lo nil :hi nil)))
+                                 (make-var :name name
+                                           :integer-p integer-p
+                                           :lo (coerce 0 *read-default-float-format*)
+                                           :up nil)))
                          (loop
                            for (row-name coef-string) on (cdr items) by #'cddr
                            for coef = (parse-real! coef-string)
@@ -196,7 +198,50 @@
                                       :line-number line-number
                                       :format-control "Unknown row name: ~A"
                                       :format-arguments (list row-name))))))
-                  (bounds)
+                  (bounds
+                   (unless (<= 3 (length items) 4)
+                     (error 'mps-syntax-error
+                            :line-number line-number
+                            :format-control "Invalid number of items"))
+                   (destructuring-bind (bound-type _ col-name &optional bound-string) items
+                     (declare (ignore _))
+                     (let ((bound (when bound-string
+                                    (parse-real! bound-string)))
+                           (var (gethash col-name variables)))
+                       (unless var
+                         (error 'mps-syntax-error
+                                :line-number line-number
+                                :format-control "Unknown column name: ~A"
+                                :format-arguments (list col-name)))
+                       (labels ((check-bound ()
+                                  (unless bound
+                                    (error 'mps-syntax-error
+                                           :line-number line-number
+                                           :format-control "No bound given"))))
+                         (trivia:match bound-type
+                           ("LO" (check-bound)
+                            (setf (var-lo var) bound))
+                           ("UP" (check-bound)
+                            (setf (var-up var) bound))
+                           ("FX" (check-bound)
+                            (setf (var-lo var) bound
+                             (var-up var) bound))
+                           ("FR" (setf (var-lo var) nil
+                                  (var-up var) nil))
+                           ("MI" (setf (var-lo var) nil))
+                           ("PL" (setf (var-up var) nil))
+                           ("BV" (setf (var-integer-p var) t
+                                  (var-lo var) 0
+                                  (var-up var) 1))
+                           ("LI" (check-bound)
+                            (setf (var-integer-p var) t
+                             (var-lo var) bound))
+                           ("UI" (check-bound)
+                            (setf (var-integer-p var) t
+                             (var-up var) bound))
+                           ("SC" (warn 'mps-syntax-warning
+                                  :line-number line-number
+                                  :format-control "Bound type SC is ignored")))))))
                   (ranges)
                   (objsense
                    (setf (problem-sense problem)

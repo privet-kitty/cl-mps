@@ -32,6 +32,7 @@ This module deals with a kind of "free MPS format". Please see [MPS file format]
 - In COLS section, variables between the two markers, INTORG and INTEND, are regarded as integral. (This is CPLEX extension. See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-integer-variables-in-mps-files.)
 - `read-mps` interprets OBJSENSE section if it exists.
 - You cannot use the following reserved words for item names: `NAME`, `ENDATA`, `ROWS`, `COLUMNS`, `RHS`, `BOUNDS`, `RANGES`, and `OBJSENSE`.
+- The type of the parsed real numbers follows `*read-default-float-format*`. Some implementation allows this variable to be `rational` and `read-mps` also supports it.
 
 
 ## Copyright
