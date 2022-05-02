@@ -180,7 +180,22 @@
                                         :line-number line-number
                                         :format-control "Unknown row name: ~A"
                                         :format-arguments (list row-name))))))))
-                  (rhs)
+                  (rhs
+                   (loop for (row-name rhs-string) on (cdr items) by #'cddr
+                         for rhs = (parse-real! rhs-string)
+                         for constraint = (gethash row-name constraints)
+                         do (cond
+                              ((gethash row-name non-constrained-rows)
+                               (error 'mps-syntax-error
+                                      :line-number line-number
+                                      :format-control "RHS is tried to be set for a N row"))
+                              (constraint
+                               (setf (constraint-rhs constraint) rhs))
+                              (t
+                               (error 'mps-syntax-error
+                                      :line-number line-number
+                                      :format-control "Unknown row name: ~A"
+                                      :format-arguments (list row-name))))))
                   (bounds)
                   (ranges)
                   (objsense
