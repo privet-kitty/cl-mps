@@ -2,13 +2,12 @@
 
 **This library is unfinished and still under development.**
 
-This module provides reader and writer for MPS format.
+This module provides reader (and writer, hopefully in the future) for MPS format.
 
-## Usage
 
 ## Requirements
 
-`cl-mps` is tested on (the usually latest version of) the following implementations:
+`cl-mps` is tested on the (usually latest version of the) following implementations:
 
 - SBCL
 - Clozure CL
