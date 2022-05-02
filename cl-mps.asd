@@ -4,7 +4,7 @@
   :version "0.0.1"
   :author "Hugo Sansaqua"
   :license "MIT"
-  :depends-on ("cl-ppcre" "trivia")
+  :depends-on ("cl-ppcre" "trivia" "trivia.ppcre")
   :components ((:module "src"
                 :components
                 ((:file "cl-mps"))))

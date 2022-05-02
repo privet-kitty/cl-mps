@@ -71,10 +71,11 @@
       for line = (read-line stream nil nil)
       while line
       for items = (%split line)
+      when items
       do (block continue
            (trivia:match (first items)
              ("ENDATA" (return))
-             ("*" (return-from continue))
+             ((trivia.ppcre:ppcre "^\\*") (return-from continue))
              ("NAME"
               (when (second items)
                 (setf (problem-name problem) (second items)))
