@@ -123,7 +123,7 @@ Note:
                         :format-control "RANGES section will be ignored"))
                 (setq mode (intern (first items) "CL-MPS")))
                (otherwise
-                (ecase mode
+                (case mode
                   (rows
                    (let* ((name (second items))
                           (sense (trivia:match (first items)
@@ -191,7 +191,10 @@ Note:
                                         :format-control "Unknown row name: ~A"
                                         :format-arguments (list row-name))))))))
                   (rhs
-                   (loop for (row-name rhs-string) on (cdr items) by #'cddr
+                   (loop for (row-name rhs-string) on (if (oddp (length items))
+                                                          (cdr items)
+                                                          items)
+                         by #'cddr
                          for rhs = (parse-real! rhs-string)
                          for constraint = (gethash row-name constraints)
                          do (cond
@@ -260,5 +263,10 @@ Note:
                             (error 'mps-syntax-error
                                    :line-number line-number
                                    :format-control "Unknown sense in OBJSENSE section: ~A"
-                                   :format-arguments (subseq items 0 1))))))))))))
+                                   :format-arguments (subseq items 0 1))))))
+                  ((nil)
+                   (warn 'mps-syntax-warning
+                         :line-number line-number
+                         :format-control "Non-comment line that belongs to no section is found and will be ignored: ~A"
+                         :format-arguments (list line)))))))))
     problem))
