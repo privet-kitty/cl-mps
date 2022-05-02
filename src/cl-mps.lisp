@@ -40,7 +40,7 @@
 
 (defstruct var ; avoid collision with cl:variable
   (name nil :type string)
-  (integer-p nil :type nil)
+  (integer-p nil :type boolean)
   (lo nil :type (or null real))
   (hi nil :type (or null real)))
 
@@ -64,6 +64,16 @@
   (delete-if-not (lambda (s) (> (length (the string s)) 0))
                  (the list (cl-ppcre:split "\\s+" string))))
 
+(defun parse-real! (string)
+  "Note that STRING may be modified."
+  (declare (optimize (speed 3))
+           (string string))
+  (uiop:if-let ((exp-pos (position #\D string :test #'char-equal)))
+    (setf (aref string exp-pos) #\E))
+  ;; NOTE: If STRING contains an exponent sign for short-float, single-float, or
+  ;; long-float (i.e. S, F, or L), the precision of the number may decrease.
+  (coerce (read-from-string string) *read-default-float-format*))
+
 (defun read-mps (stream &key (default-sense +minimize+))
   (check-type stream stream)
   (check-type default-sense sense)
@@ -74,7 +84,8 @@
                                :objective-name ""
                                :objective (make-hash-table :test #'equal)))
         mode
-        (num-n 0))
+        integer-p
+        (non-constrained-rows (make-hash-table :test #'equal)))
     (symbol-macrolet ((constraints (problem-constraints problem))
                       (variables (problem-variables problem))
                       (objective (problem-objective problem))
@@ -106,17 +117,17 @@
                (otherwise
                 (ecase mode
                   (rows
-                   (let ((sense (trivia:match (first items)
-                                  ("N" (incf num-n) nil)
-                                  ("G" +ge+)
-                                  ("L" +le+)
-                                  ("E" +eq+)
-                                  (otherwise
-                                   (error 'mps-syntax-error
-                                          :line-number line-number
-                                          :format-control "Unknown constraint sense: ~A"
-                                          :format-arguments (subseq items 0 1)))))
-                         (name (second items)))
+                   (let* ((name (second items))
+                          (sense (trivia:match (first items)
+                                   ("N" nil)
+                                   ("G" +ge+)
+                                   ("L" +le+)
+                                   ("E" +eq+)
+                                   (otherwise
+                                    (error 'mps-syntax-error
+                                           :line-number line-number
+                                           :format-control "Unknown constraint sense: ~A"
+                                           :format-arguments (subseq items 0 1))))))
                      (if sense
                          (if (gethash name constraints)
                              (error 'mps-syntax-error
@@ -127,13 +138,48 @@
                                    (make-constraint :name name :sense sense
                                                     :coefs (make-hash-table :test #'equal)
                                                     :rhs 0)))
-                         (if (= num-n 1)
+                         (if (and (setf (gethash name non-constrained-rows) t)
+                                  (= (hash-table-count non-constrained-rows) 1))
                              (setq objective-name name)
                              (warn 'mps-syntax-warning
                                    :line-number line-number
                                    :format-control "Second or later N rows are ignored: ~A"
                                    :format-arguments (list line))))))
-                  (columns)
+                  (columns
+                   (if (string= (or (second items) "") "'MARKER'")
+                       (trivia:match (third items)
+                         ("'INTORG'" (setq integer-p t))
+                         ("'INTEND'" (setq integer-p nil))
+                         (otherwise
+                          (warn 'mps-syntax-warning
+                                :line-number line-number
+                                :format-control "Unknown marker: ~A"
+                                :format-arguments (subseq items 2 3))))
+                       (let* ((name (car items)))
+                         (unless (gethash name variables)
+                           (setf (gethash name variables)
+                                 (make-var :name name :integer-p integer-p
+                                           :lo nil :hi nil)))
+                         (loop
+                           for (row-name coef-string) on (cdr items) by #'cddr
+                           for coef = (parse-real! coef-string)
+                           for constraint = (gethash row-name constraints)
+                           do (cond
+                                ((string= objective-name row-name)
+                                 (setf (gethash name objective) coef))
+                                ((gethash row-name non-constrained-rows))
+                                (constraint
+                                 (when (gethash name (constraint-coefs constraint))
+                                   (error 'mps-syntax-error
+                                          :line-number line-number
+                                          :format-control "Duplicate columns in ROW ~A: ~A."
+                                          :format-arguments (list row-name name)))
+                                 (setf (gethash name (constraint-coefs constraint)) coef))
+                                (t
+                                 (error 'mps-syntax-error
+                                        :line-number line-number
+                                        :format-control "Unknown row name: ~A"
+                                        :format-arguments (list row-name))))))))
                   (rhs)
                   (bounds)
                   (ranges)

@@ -22,6 +22,20 @@ N ROW3
 N ROW4
 ")))
   (signals mps-syntax-error
+    (read-mps (make-string-input-stream "ROWS
+G ROW1
+COLUMNS
+COL1 ROW1 3 ROW1 4")))
+  (signals mps-syntax-error
+    (read-mps (make-string-input-stream "ROWS
+G ROW1
+COLUMNS
+COL1 ROW1 3 ROW2 4")))
+  (signals mps-syntax-warning
+    (read-mps (make-string-input-stream "COLUMNS
+MARK 'MARKER' 'INTORH'
+")))
+  (signals mps-syntax-error
     (read-mps (make-string-input-stream "OBJSENSE
 max?")))
   (signals mps-syntax-error
@@ -45,8 +59,10 @@ ROWS
 COLUMNS
     XONE      COST                 1   LIM1                 1
     XONE      LIM2                 1
+    MARK0     'MARKER'             'INTORG'
     YTWO      COST                 4   LIM1                 1
     YTWO      MYEQN               -1
+    MARK0     'MARKER'             'INTEND'
     ZTHREE    COST                 9   LIM2                 1
     ZTHREE    MYEQN                1
 RHS
@@ -61,7 +77,17 @@ ENDATA")
     (is (string= (problem-name problem) "Problem_Name"))
     (is (string= (problem-objective-name problem) "COST"))
     (is (= (problem-sense problem) +minimize+))
-    (symbol-macrolet ((constraints (problem-constraints problem)))
+    (symbol-macrolet ((constraints (problem-constraints problem))
+                      (variables (problem-variables problem)))
       (is (= 3 (hash-table-count constraints)))
       (dolist (row-name '("LIM1" "LIM2" "MYEQN"))
-        (is (gethash row-name constraints))))))
+        (is (gethash row-name constraints)))
+      (is (eql +le+ (constraint-sense (gethash "LIM1" constraints))))
+      (is (eql +ge+ (constraint-sense (gethash "LIM2" constraints))))
+      (is (eql +eq+ (constraint-sense (gethash "MYEQN" constraints))))
+      (is (= 3 (hash-table-count variables)))
+      (dolist (col-name '("XONE" "YTWO" "ZTHREE"))
+        (is (gethash col-name variables)))
+      (is (not (var-integer-p (gethash "XONE" variables))))
+      (is (var-integer-p (gethash "YTWO" variables)))
+      (is (not (var-integer-p (gethash "ZTHREE" variables)))))))
