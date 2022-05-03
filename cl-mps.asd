@@ -1,14 +1,14 @@
 ;; -*- mode: lisp -*-
 
 (defsystem "cl-mps"
-  :version "0.0.1"
+  :version "0.1.0"
   :author "Hugo Sansaqua"
   :license "MIT"
   :depends-on ("cl-ppcre" "trivia" "trivia.ppcre")
   :components ((:module "src"
                 :components
                 ((:file "cl-mps"))))
-  :description "Reader and writer for MPS format"
+  :description "Reader for MPS format"
   :in-order-to ((test-op (test-op "cl-mps/test"))))
 
 (defsystem "cl-mps/test"
