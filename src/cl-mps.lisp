@@ -1,5 +1,5 @@
 (defpackage :cl-mps
-  (:use :cl #:trivia.ppcre)
+  (:use :cl #:trivia.ppcre #:trivia)
   (:export #:mps-syntax-condition #:mps-syntax-warning #:mps-syntax-error
            #:mps-syntax-condition-line-number
            #:sense #:+maximize+ #:+minimize+ #:+ge+ #:+eq+ #:+le+
@@ -93,6 +93,7 @@ positive) infinity."
   (delete-if-not (lambda (s) (> (length (the string s)) 0))
                  (the list (cl-ppcre:split "\\s+" string))))
 
+;; Hack for netlib/AGG
 (defun detect-section (items)
   (declare (optimize (speed 3)))
   (if (and (equal (first items) "OBJECT")
@@ -138,13 +139,6 @@ positive) infinity."
         while (< l (length line))
         collect (subseq* line l r)))
 
-(defun prefix-p (prefix string)
-  "Returns true iff PREFIX is a prefix of STRING."
-  (declare (optimize (speed 3))
-           (string prefix string))
-  (let ((pos (mismatch prefix string :test #'char=)))
-    (or (null pos) (= pos (length prefix)))))
-
 (defun parse-section-name (line)
   (declare (optimize (speed 3))
            (string line))
@@ -156,7 +150,7 @@ positive) infinity."
 
 (defun proc-rows (items constraints non-constrained-rows objective line-number)
   (let* ((name (second items))
-         (sense (trivia:match (first items)
+         (sense (match (first items)
                   ((ppcre "^\\s*N\\s*$") nil)
                   ((ppcre "^\\s*G\\s*$") +ge+)
                   ((ppcre "^\\s*L\\s*$") +le+)
@@ -202,7 +196,7 @@ positive) infinity."
                    (error 'mps-syntax-error
                           :line-number line-number
                           :format-control "No bound given"))))
-        (trivia:match bound-type
+        (match bound-type
           ((ppcre "^LO")
            (check-bound)
            (setf (var-lo var) bound))
@@ -250,7 +244,7 @@ positive) infinity."
 
 (defun proc-objsense (line problem line-number)
   (setf (problem-sense problem)
-        (trivia:match line
+        (match line
           ((ppcre "MAX") +maximize+)
           ((ppcre "MIN") +minimize+)
           (otherwise
@@ -289,7 +283,7 @@ Note:
               (destructuring-bind (_ name row-name1 coef1 &optional row-name2 coef2) items
                 (declare (ignore _))
                 (if (ppcre:scan "^'MARKER'" row-name1)
-                    (trivia:match (or row-name2 "")
+                    (match (or row-name2 "")
                       ((ppcre "^'INTORG'") (setq integer-p t))
                       ((ppcre "^'INTEND'") (setq integer-p nil))
                       (otherwise
@@ -372,7 +366,7 @@ Note:
                     :format-arguments (list line))))
         else
         do (let ((section (parse-section-name line)))
-             (trivia:match section
+             (match section
                ("ENDATA" (return))
                ("*")
                ("NAME"
@@ -429,7 +423,7 @@ Note:
         for items = (detect-section (%split line))
         when items
         do (block continue
-             (trivia:match (first items)
+             (match (first items)
                ("ENDATA" (return))
                ((ppcre "^\\*") (return-from continue))
                ("NAME"
@@ -454,7 +448,7 @@ Note:
                    (proc-rows items constraints non-constrained-rows objective line-number))
                   (columns
                    (if (string= (or (second items) "") "'MARKER'")
-                       (trivia:match (third items)
+                       (match (third items)
                          ("'INTORG'" (setq integer-p t))
                          ("'INTEND'" (setq integer-p nil))
                          (otherwise
