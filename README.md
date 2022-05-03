@@ -29,11 +29,11 @@ Set](https://www.cuter.rl.ac.uk/Problems/netlib.shtml).
 Below are several notes on the specifications common to two readers:
 
 - This module always behaves case-sensitive.
-- Fixed MPS format allows BOUNDS section may contain multiple sets of bounds:
-  I.e., a single file may contain multiple problem instances. As this
-  specification is not widely used, in this module, both readers simply ignore
-  the names of the bound, and assume that only a single set of bounds exist. RHS
-  section is also handled in the same way.
+- Fixed MPS format allows BOUNDS section contains multiple sets of bounds, i.e.,
+  a single file may contain multiple problem instances. As this specification is
+  not widely used, in this module, both readers simply ignore the names of the
+  bounds, and assume that only a single set of bounds exist. RHS section is also
+  handled in the same way.
 - This module doesn't deal with the bound type SC, which indicates
   semi-continuity. Both reader warns and ignores it if BOUND section contains
   it.
