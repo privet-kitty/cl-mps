@@ -1,9 +1,9 @@
 (defpackage :cl-mps
-  (:use :cl)
+  (:use :cl #:trivia.ppcre)
   (:export #:mps-syntax-condition #:mps-syntax-warning #:mps-syntax-error
            #:mps-syntax-condition-line-number
            #:sense #:+maximize+ #:+minimize+ #:+ge+ #:+eq+ #:+le+
-           #:read-mps
+           #:read-fixed-mps #:read-free-mps
            #:var #:make-var
            #:var-name #:var-integer-p #:var-lo #:var-up
            #:constraint #:make-constraint
@@ -123,11 +123,289 @@ positive) infinity."
                                  :format-arguments (list string)))))
     (coerce* (read-from-string string) *read-default-float-format*)))
 
-(defun read-mps (stream &key (default-sense +minimize+))
-  "Reads MPS format and returns a PROBLEM object.
+(defun subseq* (line l r)
+  (declare (optimize (speed 3))
+           (string line)
+           ((mod #.array-dimension-limit) l r))
+  (let ((res (make-string (- r l) :element-type 'base-char :initial-element #\Space)))
+    (replace res line :start2 l :end2 (min (length line) r))
+    res))
+
+(defun parse-fixed-items (line)
+  (declare (optimize (speed 3))
+           (string line))
+  (loop for (l . r) in '((1 . 4) (4 . 12) (14 . 22) (24 . 36) (39 . 47) (49 . 61))
+        while (< l (length line))
+        collect (subseq* line l r)))
+
+(defun prefix-p (prefix string)
+  "Returns true iff PREFIX is a prefix of STRING."
+  (declare (optimize (speed 3))
+           (string prefix string))
+  (let ((pos (mismatch prefix string :test #'char=)))
+    (or (null pos) (= pos (length prefix)))))
+
+(defun parse-section-name (line)
+  (declare (optimize (speed 3))
+           (string line))
+  (multiple-value-bind (l r)
+      (ppcre:scan "^(ENDATA|\\*|NAME|OBJECT BOUND|ROWS|COLUMNS|RHS|RANGES|BOUNDS|OBJSENSE)"
+                  line)
+    (when (and l r)
+      (subseq line l r))))
+
+(defun proc-rows (items constraints non-constrained-rows objective line-number)
+  (let* ((name (second items))
+         (sense (trivia:match (first items)
+                  ((ppcre "^\\s*N\\s*$") nil)
+                  ((ppcre "^\\s*G\\s*$") +ge+)
+                  ((ppcre "^\\s*L\\s*$") +le+)
+                  ((ppcre "^\\s*E\\s*$") +eq+)
+                  (otherwise
+                   (error 'mps-syntax-error
+                          :line-number line-number
+                          :format-control "Unknown constraint sense: ~A"
+                          :format-arguments (subseq items 0 1))))))
+    (if sense
+        (if (gethash name constraints)
+            (error 'mps-syntax-error
+                   :line-number line-number
+                   :format-control "Row name ~A is already used"
+                   :format-arguments (list name))
+            (setf (gethash name constraints)
+                  (make-constraint :name name :sense sense :rhs 0)))
+        (if (and (setf (gethash name non-constrained-rows) t)
+                 (= (hash-table-count non-constrained-rows) 1))
+            (setf (constraint-name objective) name)
+            (warn 'mps-syntax-warning
+                  :line-number line-number
+                  :format-control "Second or later N rows are ignored: ~A"
+                  :format-arguments (list name))))))
+
+(defun proc-bounds (items variables line-number)
+  (unless (<= 3 (length items) 4)
+    (error 'mps-syntax-error
+           :line-number line-number
+           :format-control "Invalid number of items"))
+  (destructuring-bind (bound-type _ col-name &optional bound-string) items
+    (declare (ignore _))
+    (let ((bound (when bound-string
+                   (parse-real! bound-string line-number)))
+          (var (gethash col-name variables)))
+      (unless var
+        (error 'mps-syntax-error
+               :line-number line-number
+               :format-control "Unknown column name: ~A"
+               :format-arguments (list col-name)))
+      (labels ((check-bound ()
+                 (unless bound-string
+                   (error 'mps-syntax-error
+                          :line-number line-number
+                          :format-control "No bound given"))))
+        (trivia:match bound-type
+          ((ppcre "^LO")
+           (check-bound)
+           (setf (var-lo var) bound))
+          ((ppcre "^UP")
+           (check-bound)
+           (setf (var-up var) bound)
+           ;; Follow CPLEX behaviour
+           ;; See https://www.ibm.com/docs/ar/icos/20.1.0?topic=standard-records-in-mps-format
+           (when (and (< bound 0)
+                      (zerop (var-lo var)))
+             (warn
+              'mps-syntax-warning
+              :line-number line-number
+              :format-control "Default LO value of ~A is assumed to be -inf as UP is set to ~A"
+              :format-arguments (list col-name bound))
+             (setf (var-lo var) nil)))
+          ((ppcre "^FX")
+           (check-bound)
+           (setf (var-lo var) bound
+                 (var-up var) bound))
+          ((ppcre "^FR")
+           (setf (var-lo var) nil
+                 (var-up var) nil))
+          ((ppcre "^MI")
+           (setf (var-lo var) nil))
+          ((ppcre "^PL")
+           (setf (var-up var) nil))
+          ((ppcre "^LI")
+           (check-bound)
+           (setf (var-integer-p var) t
+                 (var-lo var) bound))
+          ((ppcre "^UI")
+           (check-bound)
+           (setf (var-integer-p var) t
+                 (var-up var) bound))
+          ((ppcre "^BV")
+           (setf (var-integer-p var) t
+                 (var-lo var) 0
+                 (var-up var) 1))
+          (otherwise
+           (warn 'mps-syntax-warning
+                 :line-number line-number
+                 :format-control "Bound type ~A is ignored"
+                 :format-arguments (list bound-type))))))))
+
+(defun proc-objsense (line problem line-number)
+  (setf (problem-sense problem)
+        (trivia:match line
+          ((ppcre "MAX") +maximize+)
+          ((ppcre "MIN") +minimize+)
+          (otherwise
+           (error 'mps-syntax-error
+                  :line-number line-number
+                  :format-control "Unknown sense in OBJSENSE section: ~A"
+                  :format-arguments line)))))
+
+(defun read-fixed-mps (stream &key (default-sense +minimize+))
+  "Reads fixed MPS format and returns a PROBLEM object.
 
 Note:
 - OBJSENSE section takes precedence over DEFAULT-SENSE."
+  (check-type stream stream)
+  (check-type default-sense sense)
+  (let* ((objective (make-constraint))
+         (problem (make-problem :sense default-sense :objective objective))
+         mode
+         integer-p
+         (non-constrained-rows (make-hash-table :test #'equal)))
+    (symbol-macrolet ((constraints (problem-constraints problem))
+                      (variables (problem-variables problem))
+                      (objective-name (constraint-name objective))
+                      (objective-coefs (constraint-coefs objective)))
+      (loop
+        for line-number from 0
+        for line = (read-line stream nil nil)
+        while line
+        for items = (parse-fixed-items line)
+        when (find #\Space line :test-not #'char=)
+        when (char= #\Space (aref line 0))
+        do (case mode
+             (rows
+              (proc-rows items constraints non-constrained-rows objective line-number))
+             (columns
+              (destructuring-bind (_ name row-name1 coef1 &optional row-name2 coef2) items
+                (declare (ignore _))
+                (if (ppcre:scan "^'MARKER'" row-name1)
+                    (trivia:match (or row-name2 "")
+                      ((ppcre "^'INTORG'") (setq integer-p t))
+                      ((ppcre "^'INTEND'") (setq integer-p nil))
+                      (otherwise
+                       (warn 'mps-syntax-warning
+                             :line-number line-number
+                             :format-control "Unknown marker: ~A"
+                             :format-arguments (list coef1))))
+                    (labels
+                        ((frob (row-name coef-string)
+                           (let ((coef (parse-real! coef-string line-number))
+                                 (constraint (gethash row-name constraints)))
+                             (cond
+                               ((string= objective-name row-name)
+                                (setf (gethash name objective-coefs) coef))
+                               ((gethash row-name non-constrained-rows))
+                               (constraint
+                                (when (gethash name (constraint-coefs constraint))
+                                  (error 'mps-syntax-error
+                                         :line-number line-number
+                                         :format-control "Duplicate columns in ROW ~A: ~A."
+                                         :format-arguments (list row-name name)))
+                                (setf (gethash name (constraint-coefs constraint)) coef))
+                               (t
+                                (error 'mps-syntax-error
+                                       :line-number line-number
+                                       :format-control "Unknown row name: ~A"
+                                       :format-arguments (list row-name)))))))
+                      (unless (gethash name variables)
+                        (setf (gethash name variables)
+                              (make-var :name name
+                                        :integer-p integer-p
+                                        :lo (coerce 0 *read-default-float-format*)
+                                        :up nil)))
+                      (frob row-name1 coef1)
+                      (when row-name2
+                        (if coef2
+                            (frob row-name2 coef2)
+                            (warn 'mps-syntax-warning
+                                  :line-number line-number
+                                  :format-control "No value given to row ~A"
+                                  :format-arguments (list row-name2))))))))
+             ((rhs ranges)
+              (destructuring-bind (_ __ row-name1 value1 &optional row-name2 value2) items
+                (declare (ignore _ __))
+                (labels ((frob (row-name value-string)
+                           (let ((value (parse-real! value-string line-number))
+                                 (constraint (gethash row-name constraints)))
+                             (cond
+                               ((and (eql mode 'rhs)
+                                     (string= row-name objective-name))
+                                (setf (constraint-rhs objective) value))
+                               ((gethash row-name non-constrained-rows)
+                                (warn 'mps-syntax-warning
+                                      :line-number line-number
+                                      :format-control "~A is tried to be set for a N row"
+                                      :format-arguments (list mode)))
+                               (constraint
+                                (ecase mode
+                                  (rhs (setf (constraint-rhs constraint) value))
+                                  (ranges (setf (constraint-range constraint) value))))
+                               (t
+                                (error 'mps-syntax-error
+                                       :line-number line-number
+                                       :format-control "Unknown row name: ~A"
+                                       :format-arguments (list row-name)))))))
+                  (frob row-name1 value1)
+                  (when row-name2
+                    (if value2
+                        (frob row-name2 value2)
+                        (warn 'mps-syntax-warning
+                              :line-number line-number
+                              :format-control "No value given to row ~A"
+                              :format-arguments (list row-name2)))))))
+             (bounds (proc-bounds items variables line-number))
+             (objsense (proc-objsense line problem line-number))
+             ((nil)
+              (warn 'mps-syntax-warning
+                    :line-number line-number
+                    :format-control "Non-comment line that belongs to no section is found and will be ignored: ~A"
+                    :format-arguments (list line))))
+        else
+        do (let ((section (parse-section-name line)))
+             (trivia:match section
+               ("ENDATA" (return))
+               ("*")
+               ("NAME"
+                (if (third items)
+                    (setf (problem-name problem) (third items))
+                    (warn 'mps-syntax-warning
+                          :line-number line-number
+                          :format-control "No NAME given")))
+               ("OBJECT BOUND"
+                (warn 'mps-syntax-warning
+                 :line-number line-number
+                 :format-control "~A section will be ignored"
+                 :format-arguments (list section))
+                (setq mode (intern section "CL-MPS")))
+               ((or "ROWS" "COLUMNS" "RHS" "RANGES" "BOUNDS" "OBJSENSE")
+                (setq mode (intern section "CL-MPS")))
+               (otherwise
+                (warn 'mps-syntax-warning
+                      :line-number line-number
+                      :format-control "Unknown section is ignored: ~A"
+                      :format-arguments (list line)))))))
+    problem))
+
+(defun read-free-mps (stream &key (default-sense +minimize+))
+  "Reads free MPS format and returns a PROBLEM object.
+
+Note:
+- OBJSENSE section takes precedence over DEFAULT-SENSE.
+- The length of the item (e.g. variable) name is arbitrary.
+- You cannot use whitespaces in item names. More precisely, characters that match the regex `\s` are regarded as separators. Therefore, all the blanks at both end of item names are trimmed.
+- In COLUMN and RHS section, you can put three or more variables on a single line. (In fixed MPS format, only one or two variables are allowed.)
+- The following words are reserved and cannot be used as item names: `NAME`, `ENDATA`, `ROWS`, `COLUMNS`, `RHS`, `BOUNDS`, `RANGES`, `OBJSENSE`, and `OBJECT BOUND`.
+"
   (check-type stream stream)
   (check-type default-sense sense)
   (let* ((objective (make-constraint))
@@ -148,7 +426,7 @@ Note:
         do (block continue
              (trivia:match (first items)
                ("ENDATA" (return))
-               ((trivia.ppcre:ppcre "^\\*") (return-from continue))
+               ((ppcre "^\\*") (return-from continue))
                ("NAME"
                 (when (second items)
                   (setf (problem-name problem) (second items)))
@@ -168,32 +446,7 @@ Note:
                (otherwise
                 (case mode
                   (rows
-                   (let* ((name (second items))
-                          (sense (trivia:match (first items)
-                                   ("N" nil)
-                                   ("G" +ge+)
-                                   ("L" +le+)
-                                   ("E" +eq+)
-                                   (otherwise
-                                    (error 'mps-syntax-error
-                                           :line-number line-number
-                                           :format-control "Unknown constraint sense: ~A"
-                                           :format-arguments (subseq items 0 1))))))
-                     (if sense
-                         (if (gethash name constraints)
-                             (error 'mps-syntax-error
-                                    :line-number line-number
-                                    :format-control "Row name ~A is already used"
-                                    :format-arguments (list name))
-                             (setf (gethash name constraints)
-                                   (make-constraint :name name :sense sense :rhs 0)))
-                         (if (and (setf (gethash name non-constrained-rows) t)
-                                  (= (hash-table-count non-constrained-rows) 1))
-                             (setq objective-name name)
-                             (warn 'mps-syntax-warning
-                                   :line-number line-number
-                                   :format-control "Second or later N rows are ignored: ~A"
-                                   :format-arguments (list line))))))
+                   (proc-rows items constraints non-constrained-rows objective line-number))
                   (columns
                    (if (string= (or (second items) "") "'MARKER'")
                        (trivia:match (third items)
@@ -256,89 +509,8 @@ Note:
                                       :line-number line-number
                                       :format-control "Unknown row name: ~A"
                                       :format-arguments (list row-name))))))
-                  (bounds
-                   (let ((bound-type (first items))
-                         bound-string col-name)
-                     (unless (member bound-type '("LO" "UP" "FX" "FR" "MI" "PL"
-                                                  "BV" "LI" "UI")
-                                     :test #'string=)
-                       (warn 'mps-syntax-warning
-                             :line-number line-number
-                             :format-control "Bound type ~A is ignored"
-                             :format-arguments (list bound-type))
-                       (return-from continue))
-                     ;; HACK: An "empty" bound name is allowed in fixed MPS format
-                     ;; and sometimes found in famous MPS data.
-                     ;; For example, netlib/DFL001 contains the following line in
-                     ;; BOUNDS section:
-                     ;;  UP           C03609             14.
-                     (if (member bound-type '("LO" "UP" "FX" "LI" "UI")
-                                 :test #'string=)
-                         (progn
-                           (unless (<= 3 (length items) 4)
-                             (error 'mps-syntax-error
-                                    :line-number line-number
-                                    :format-control "Invalid number of items"))
-                           (destructuring-bind (i2 i3 &optional i4) (cdr items)
-                             (if i4
-                                 (multiple-value-setq (col-name bound-string)
-                                   (values i3 i4))
-                                 (multiple-value-setq (col-name bound-string)
-                                   (values i2 i3)))))
-                         (progn
-                           (unless (<= 2 (length items) 3)
-                             (error 'mps-syntax-error
-                                    :line-number line-number
-                                    :format-control "Invalid number of items"))
-                           (destructuring-bind (i2 &optional i3) (cdr items)
-                             (if i3
-                                 (setq col-name i3)
-                                 (setq col-name i2)))))
-                     (let ((bound (when bound-string
-                                    (parse-real! bound-string line-number)))
-                           (var (gethash col-name variables)))
-                       (unless var
-                         (error 'mps-syntax-error
-                                :line-number line-number
-                                :format-control "Unknown column name: ~A"
-                                :format-arguments (list col-name)))
-                       (trivia:match bound-type
-                         ("LO" (setf (var-lo var) bound))
-                         ("UP" (setf (var-up var) bound)
-                          ;; Follow CPLEX behaviour
-                          ;; See https://www.ibm.com/docs/ar/icos/20.1.0?topic=standard-records-in-mps-format
-                          (when (and (< bound 0)
-                                     (zerop (var-lo var)))
-                            (warn
-                             'mps-syntax-warning
-                             :line-number line-number
-                             :format-control "Default LO value of ~A is assumed to be -inf as UP is set to ~A"
-                             :format-arguments (list col-name bound))
-                            (setf (var-lo var) nil)))
-                         ("FX" (setf (var-lo var) bound
-                                (var-up var) bound))
-                         ("FR" (setf (var-lo var) nil
-                                (var-up var) nil))
-                         ("MI" (setf (var-lo var) nil))
-                         ("PL" (setf (var-up var) nil))
-                         ("LI" (setf (var-integer-p var) t
-                                (var-lo var) bound))
-                         ("UI" (setf (var-integer-p var) t
-                                (var-up var) bound))
-                         ("BV" (setf (var-integer-p var) t
-                                (var-lo var) 0
-                                (var-up var) 1))
-                         (otherwise (error "Unreachable"))))))
-                  (objsense
-                   (setf (problem-sense problem)
-                         (trivia:match (first items)
-                           ("MAX" +maximize+)
-                           ("MIN" +minimize+)
-                           (otherwise
-                            (error 'mps-syntax-error
-                                   :line-number line-number
-                                   :format-control "Unknown sense in OBJSENSE section: ~A"
-                                   :format-arguments (subseq items 0 1))))))
+                  (bounds (proc-bounds items variables line-number))
+                  (objsense (proc-objsense line problem line-number))
                   ((nil)
                    (warn 'mps-syntax-warning
                          :line-number line-number
