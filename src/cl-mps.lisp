@@ -402,9 +402,14 @@ Note:
 Note:
 - OBJSENSE section takes precedence over DEFAULT-SENSE.
 - The length of the item (e.g. variable) name is arbitrary.
-- You cannot use whitespaces in item names. More precisely, characters that match the regex `\s` are regarded as separators. Therefore, all the blanks at both end of item names are trimmed.
-- In COLUMN and RHS section, you can put three or more variables on a single line. (In fixed MPS format, only one or two variables are allowed.)
-- The following words are reserved and cannot be used as item names: `NAME`, `ENDATA`, `ROWS`, `COLUMNS`, `RHS`, `BOUNDS`, `RANGES`, `OBJSENSE`, and `OBJECT BOUND`.
+- You cannot use whitespaces in item names. More precisely, characters that
+  match the regex `\s` are regarded as separators. Therefore, all the blanks at
+  both end of item names are trimmed.
+- In COLUMN and RHS section, you can put three or more variables on a single
+  line. (In fixed MPS format, only one or two variables are allowed.)
+- The following words are reserved and cannot be used as item names: `NAME`,
+  `ENDATA`, `ROWS`, `COLUMNS`, `RHS`, `BOUNDS`, `RANGES`, `OBJSENSE`, and
+  `OBJECT BOUND`.
 "
   (check-type stream stream)
   (check-type default-sense sense)
