@@ -23,10 +23,10 @@ deal with fixed MPS format and a kind of "free MPS format", respectively. Please
 see [MPS file format](http://lpsolve.sourceforge.net/5.0/mps-format.htm) for the
 details. 
 
-It is inteded that `read-fixed-mps` can read all of the [NETLIB LP Test Problem
+It is intended that `read-fixed-mps` can read all of the [NETLIB LP Test Problem
 Set](https://www.cuter.rl.ac.uk/Problems/netlib.shtml).
 
-Below are the several notes on the mutual specifications.
+Below are several notes on the specifications common to two readers:
 
 - This module always behaves case-sensitive.
 - Fixed MPS format allows BOUNDS section may contain multiple sets of bounds:
@@ -43,9 +43,9 @@ Below are the several notes on the mutual specifications.
 - Both reader interpret parts of CPLEX extensions.
   - In COLUMNS section, variables between the two markers, INTORG and INTEND, are regarded as integral. (See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-integer-variables-in-mps-files.)
   - Both reader interprets OBJSENSE section if it exists. (See https://www.ibm.com/docs/en/icos/20.1.0?topic=extensions-objective-sense-name-offset-in-mps-files.)
-- The type of the parsed real numbers follows
-  `*read-default-float-format*`. Some implementations allow this variable to be
-  `rational` and this module also supports it.
+- The type of the parsed real values follows `*read-default-float-format*`. Some
+  implementations allow this variable to be `rational` and this module also
+  supports it.
 
 Please see the docstrings for the difference between `read-fixed-mps` and
 `read-free-mps`.
