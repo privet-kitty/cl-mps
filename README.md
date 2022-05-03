@@ -2,7 +2,7 @@
 
 [![Build Status](https://github.com/privet-kitty/cl-mps/workflows/CI/badge.svg)](https://github.com/privet-kitty/cl-mps/actions)
 
-**This library is unfinished and still under development.**
+**This library is still in alpha stage.**
 
 This module provides readers (but no writers, at least for now) for MPS format.
 
