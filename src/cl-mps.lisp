@@ -53,7 +53,7 @@ positive) infinity."
   (name "" :type string)
   (sense nil :type (or null sense))
   (coefs (make-hash-table :test #'equal) :type hash-table)
-  (rhs nil :type real)
+  (rhs 0 :type real)
   (range nil :type (or null real)))
 
 (defun constraint-up (constraint)
@@ -85,8 +85,7 @@ positive) infinity."
   (sense nil :type sense)
   (variables (make-hash-table :test #'equal) :type hash-table)
   (constraints (make-hash-table :test #'equal) :type hash-table)
-  (objective-name "" :type string)
-  (objective (make-hash-table :test #'equal) :type hash-table))
+  (objective nil :type constraint))
 
 (defun %split (string)
   (declare (optimize (speed 3))
@@ -131,14 +130,15 @@ Note:
 - OBJSENSE section takes precedence over DEFAULT-SENSE."
   (check-type stream stream)
   (check-type default-sense sense)
-  (let ((problem (make-problem :sense default-sense))
-        mode
-        integer-p
-        (non-constrained-rows (make-hash-table :test #'equal)))
+  (let* ((objective (make-constraint))
+         (problem (make-problem :sense default-sense :objective objective))
+         mode
+         integer-p
+         (non-constrained-rows (make-hash-table :test #'equal)))
     (symbol-macrolet ((constraints (problem-constraints problem))
                       (variables (problem-variables problem))
-                      (objective (problem-objective problem))
-                      (objective-name (problem-objective-name problem)))
+                      (objective-name (constraint-name objective))
+                      (objective-coefs (constraint-coefs objective)))
       (loop
         for line-number from 0
         for line = (read-line stream nil nil)
@@ -217,7 +217,7 @@ Note:
                            for constraint = (gethash row-name constraints)
                            do (cond
                                 ((string= objective-name row-name)
-                                 (setf (gethash name objective) coef))
+                                 (setf (gethash name objective-coefs) coef))
                                 ((gethash row-name non-constrained-rows))
                                 (constraint
                                  (when (gethash name (constraint-coefs constraint))
@@ -239,6 +239,9 @@ Note:
                          for value = (parse-real! value-string line-number)
                          for constraint = (gethash row-name constraints)
                          do (cond
+                              ((and (eql mode 'rhs)
+                                    (string= row-name objective-name))
+                               (setf (constraint-rhs objective) value))
                               ((gethash row-name non-constrained-rows)
                                (warn 'mps-syntax-warning
                                      :line-number line-number
@@ -301,7 +304,17 @@ Note:
                                 :format-arguments (list col-name)))
                        (trivia:match bound-type
                          ("LO" (setf (var-lo var) bound))
-                         ("UP" (setf (var-up var) bound))
+                         ("UP" (setf (var-up var) bound)
+                          ;; Follow CPLEX behaviour
+                          ;; See https://www.ibm.com/docs/ar/icos/20.1.0?topic=standard-records-in-mps-format
+                          (when (and (< bound 0)
+                                     (zerop (var-lo var)))
+                            (warn
+                             'mps-syntax-warning
+                             :line-number line-number
+                             :format-control "Default LO value of ~A is assumed to be -inf as UP is set to ~A"
+                             :format-arguments (list col-name bound))
+                            (setf (var-lo var) nil)))
                          ("FX" (setf (var-lo var) bound
                                 (var-up var) bound))
                          ("FR" (setf (var-lo var) nil

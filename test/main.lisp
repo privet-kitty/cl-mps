@@ -69,11 +69,13 @@ MARK 'MARKER' 'INTORH'
 G ROW1
 RHS
 RHS1 ROW3 3")))
-  (signals mps-syntax-warning (read-mps (make-string-input-stream "ROWS
-N ROW1
-RHS
-RHS1 ROW1 3")))
   ;; invalid BOUNDS
+  (signals mps-syntax-warning (read-mps (make-string-input-stream "ROWS
+G ROW1
+COLUMNS
+COL1 ROW1 3
+BOUNDS
+UP BND1 COL1 -3")))
   (signals mps-syntax-error (read-mps (make-string-input-stream "ROWS
 G ROW1
 COLUMNS
@@ -96,10 +98,8 @@ max?")))
                                   :default-sense +maximize+))
          +maximize+))
   (dolist (*read-default-float-format* '(double-float single-float #+(or sbcl clozure) rational))
-    (let ((problem
-            (handler-bind ((warning (lambda (c) (declare (ignorable c)) (error "warn"))))
-              (read-mps (make-string-input-stream
-                         "NAME          Problem_Name
+    (let ((problem (read-mps (make-string-input-stream
+                              "NAME          Problem_Name
 ROWS
  N  COST
  L  LIM1
@@ -114,20 +114,22 @@ COLUMNS
     MARK0     'MARKER'             'INTEND'
     ZTHREE    COST                 9   LIM2                 1
     ZTHREE    MYEQN                1
+    WFOUR     LIM1                 3
 RHS
     RHS1      LIM1                 5e3 LIM2                1D-3
     RHS1      MYEQN                7.23
+    RHS1      COST                 -1E2
 BOUNDS
  MI BND1      XONE
  UI BND1      XONE                 4
  LO BND1      YTWO                -1
  UP BND1      YTWO                 1
+ UP BND1      WFOUR                -1
 RANGES
  RNG1 LIM1 0.5
 ENDATA")
-                        :default-sense +minimize+))))
+                             :default-sense +minimize+)))
       (is (string= (problem-name problem) "Problem_Name"))
-      (is (string= (problem-objective-name problem) "COST"))
       (is (= (problem-sense problem) +minimize+))
       (symbol-macrolet ((constraints (problem-constraints problem))
                         (variables (problem-variables problem))
@@ -148,21 +150,25 @@ ENDATA")
                  (constraint-range (gethash "LIM1" constraints))))
         (is (null (constraint-range (gethash "LIM2" constraints))))
         (is (null (constraint-range (gethash "MYEQN" constraints))))
-        (is (= 3 (hash-table-count objective)))
-        (is (eql (coerce 1 *read-default-float-format*) (gethash "XONE" objective)))
-        (is (eql (coerce 4 *read-default-float-format*) (gethash "YTWO" objective)))
-        (is (eql (coerce 9 *read-default-float-format*) (gethash "ZTHREE" objective)))
-        (is (= 3 (hash-table-count variables)))
+        (is (string= "COST" (constraint-name objective)))
+        (is (eql (coerce -100 *read-default-float-format*) (constraint-rhs objective)))
+        (let ((coefs (constraint-coefs objective)))
+          (is (= 3 (hash-table-count coefs)))
+          (is (eql (coerce 1 *read-default-float-format*) (gethash "XONE" coefs)))
+          (is (eql (coerce 4 *read-default-float-format*) (gethash "YTWO" coefs)))
+          (is (eql (coerce 9 *read-default-float-format*) (gethash "ZTHREE" coefs))))
+        (is (= 4 (hash-table-count variables)))
         (loop for (col row val) in '(("XONE" "LIM1" 1) ("XONE" "LIM2" 1)
                                      ("YTWO" "LIM1" 1) ("YTWO" "MYEQN" -1)
                                      ("ZTHREE" "LIM2" 1) ("ZTHREE" "MYEQN" 1))
               for coef = (gethash col (constraint-coefs (gethash row constraints)))
               do (is (= coef val)))
-        (dolist (col-name '("XONE" "YTWO" "ZTHREE"))
+        (dolist (col-name '("XONE" "YTWO" "ZTHREE" "WFOUR"))
           (is (gethash col-name variables)))
         (is (var-integer-p (gethash "XONE" variables)))
         (is (var-integer-p (gethash "YTWO" variables)))
         (is (not (var-integer-p (gethash "ZTHREE" variables))))
+        (is (not (var-integer-p (gethash "WFOUR" variables))))
         (is (null (var-lo (gethash "XONE" variables))))
         (is (eql (coerce 4 *read-default-float-format*)
                  (var-up (gethash "XONE" variables))))
@@ -172,4 +178,7 @@ ENDATA")
                  (var-up (gethash "YTWO" variables))))
         (is (eql (coerce 0 *read-default-float-format*)
                  (var-lo (gethash "ZTHREE" variables))))
-        (is (null (var-up (gethash "ZTHREE" variables))))))))
+        (is (null (var-up (gethash "ZTHREE" variables))))
+        (is (null (var-lo (gethash "WFOUR" variables))))
+        (is (eql (coerce -1 *read-default-float-format*)
+                 (var-up (gethash "WFOUR" variables))))))))
